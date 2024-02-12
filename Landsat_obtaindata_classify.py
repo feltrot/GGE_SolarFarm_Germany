@@ -112,3 +112,81 @@ modis_image = download_modis_lst(latitude, longitude, date)
 temperature_value = extract_temperature(modis_image)
 
 print(f"Temperature at {latitude}, {longitude} on {date}: {temperature_value} K")
+
+
+
+
+
+
+
+
+
+import os
+from glob import glob
+import subprocess
+
+import rasterio
+
+
+# Prepare paths.
+input_pattern = 'data/eudem/*.TIF'
+input_paths = sorted(glob(input_pattern))
+assert input_paths
+vrt_path = 'data/eudem-vrt/eudem.vrt'
+output_dir = 'data/eudem-buffered/'
+os.makedirs(output_dir, exist_ok=True)
+
+# EU-DEM specific options.
+tile_size = 1_000_000
+buffer_size = 50
+
+for input_path in input_paths:
+
+    # Get tile bounds.
+    with rasterio.open(input_path) as f:
+        bottom = int(f.bounds.bottom)
+        left = int(f.bounds.left)
+
+    # For EU-DEM only: round this partial tile down to the nearest tile_size.
+    if left == 943750:
+        left = 0
+
+    # New tile name in SRTM format.
+    output_name = 'N' + str(bottom).zfill(7) + 'E' + str(left).zfill(7) + '.TIF'
+    output_path = os.path.join(output_dir, output_name)
+
+    # New bounds.
+    xmin = left - buffer_size
+    xmax = left + tile_size + buffer_size
+    ymin = bottom - buffer_size
+    ymax = bottom + tile_size + buffer_size
+
+    # EU-DEM tiles don't cover negative locations.
+    xmin = max(0, xmin)
+    ymin = max(0, ymin)
+
+    # Do the transformation.
+    cmd = [
+        'gdal_translate',
+        '-a_srs', 'EPSG:3035',  # EU-DEM crs.
+        '-co', 'NUM_THREADS=ALL_CPUS',
+        '-co', 'COMPRESS=DEFLATE',
+        '-co', 'BIGTIFF=YES',
+        '--config', 'GDAL_CACHEMAX','512',
+        '-projwin', str(xmin), str(ymax), str(xmax), str(ymin),
+        vrt_path, output_path,
+    ]
+    r = subprocess.run(cmd)
+    r.check_returncode()
+
+
+
+import elevation
+
+# Set the bounding box for the region in Germany you are interested in
+bbox = (7.8250615, 51.5097488, 7.8812025, 51.5315566)  # (min_lon, min_lat, max_lon, max_lat)
+
+# Download the DEM data
+elevation.clip(bounds=bbox, output='dem.tif')
+
+print("DEM downloaded successfully.")
