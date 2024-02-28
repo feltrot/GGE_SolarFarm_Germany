@@ -9,6 +9,136 @@ import arcpy
 import numpy as np
 from sklearn.cluster import KMeans
 
+
+
+
+# download landsat images (following this link: https://towardsdatascience.com/downloading-landsat-satellite-images-with-python-a2d2b5183fb7)
+from landsatxplore.api import API
+import requests
+
+# Your USGS  credentials
+username = "ftrott"
+password = "rimhy1-tiwzoh-wepnIh"
+
+# Initialize a new API instance
+api = API(username, password)
+
+# Perform a request
+response = api.request(endpoint="dataset-catalogs")
+print(response)
+
+
+
+# Search for Landsat TM scenes
+scenes = api.search(
+    dataset='landsat_ot_c2_l2',
+    latitude=51.5226,
+    longitude=7.8414,
+    start_date='2023-05-01',
+    end_date='2023-08-31',
+    max_cloud_cover=50
+)
+
+# log out
+api.logout()
+
+
+
+import pandas as pd
+
+# Create a DataFrame from the scenes
+df_scenes = pd.DataFrame(scenes)
+df_scenes = df_scenes[['display_id','wrs_path', 'wrs_row','satellite','cloud_cover','acquisition_date']]
+df_scenes.sort_values('acquisition_date', ascending=False, inplace=True)
+
+directory = '/Users/felixtrotter/Documents/Training/Projects/GGE_Solar/Data_samples'
+
+from landsatxplore.earthexplorer import EarthExplorer
+import os
+
+# Initialize the API
+ee = EarthExplorer(username, password)
+
+
+for i in df_scenes["display_id"]:
+    print(i)
+    # Select the first scene
+    ID = i
+
+    # Download the scene 
+    try: 
+        ee.download(ID, output_dir=directory)
+        print('{} succesful'.format(ID))
+        
+    # Additional error handling
+    except:
+        if os.path.isfile(os.path.join(directory, '/{}.tar').format(ID)):
+            print('{} error but file exists'.format(ID))
+        else:
+            print('{} error'.format(ID))
+
+ee.logout()
+
+
+import tarfile
+
+for file in os.listdir(directory):
+    print(file)
+    if not file.endswith('DS_Store'):
+        # Extract files from tar archiveßß
+        tar = tarfile.open(os.path.join(directory, file))
+        tar.extractall(directory)
+        tar.close()
+
+
+import tifffile as tiff
+import numpy as np
+import matplotlib.pyplot as plt
+
+# create directory oif not yet exists
+dir_RGB_images = os.path.join(directory, 'RGB_images')
+if not os.path.exists(dir_RGB_images):
+    os.makedirs(dir_RGB_images)
+
+RBG_ls = []
+for ii in df_scenes["display_id"]:
+    print(ii)
+    # Select the first scene
+    ID = ii
+    # Load Blue (B2), Green (B3) and Red (B4) bands
+    B2 = tiff.imread(os.path.join(directory, '{}_SR_B2.TIF').format(ID, ID))
+    B3 = tiff.imread(os.path.join(directory, '{}_SR_B3.TIF').format(ID, ID))
+    B4 = tiff.imread(os.path.join(directory, '{}_SR_B4.TIF').format(ID, ID))
+
+    # Stack and scale bands
+    RGB = np.dstack((B4, B3, B2))
+    RGB = np.clip(RGB*0.0000275-0.2, 0, 1)
+
+    # Clip to enhance contrast
+    RGB = np.clip(RGB,0,0.2)/0.2
+
+    # save image as tif file in new directory
+    tiff.imwrite(dir_RGB_images + '/' + 'RGB__' + ii + '.tif', RGB)
+
+    # append each RGB image to the list
+    #RBG_ls.append(RGB)
+    # Display RGB image
+    #fig, ax = plt.subplots(figsize=(10, 10))
+    #plt.imshow(RGB)
+    #ax.set_axis_off()
+
+
+
+
+for img in RBG_ls:
+    tiff.imsave(dir_RGB_images)
+
+
+
+
+
+
+
 # Function to download Landsat images
 def download_landsat_images(api_key, output_path, latitude, longitude, start_date, end_date):
     api = landsatxplore.api.API(api_key)
